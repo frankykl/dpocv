@@ -1,3 +1,4 @@
-== dpocv directory structure ==
+# dpocv directory structure 
+
 dpocv/
-  -- modules/                   # All deepphoton opencv modules to be placed inside opencv_contrib/modules
+ -- modules/                # All deepphoton opencv modules to be placed inside opencv_contrib/modules
