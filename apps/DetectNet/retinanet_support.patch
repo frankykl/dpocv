@@ -1,0 +1,80 @@
+diff --git a/modules/dnn/include/opencv2/dnn/dnn.hpp b/modules/dnn/include/opencv2/dnn/dnn.hpp
+index e99f844..197b5e0 100644
+--- a/modules/dnn/include/opencv2/dnn/dnn.hpp
++++ b/modules/dnn/include/opencv2/dnn/dnn.hpp
+@@ -636,6 +636,8 @@ CV__DNN_EXPERIMENTAL_NS_BEGIN
+          */
+         CV_WRAP int64 getPerfProfile(CV_OUT std::vector<double>& timings);
+ 
++        CV_WRAP void getOutputBlobs(int layerId, std::vector<Mat>& blobs);
++
+     private:
+         struct Impl;
+         Ptr<Impl> impl;
+diff --git a/modules/dnn/src/dnn.cpp b/modules/dnn/src/dnn.cpp
+index bc18695..80a9b1d 100644
+--- a/modules/dnn/src/dnn.cpp
++++ b/modules/dnn/src/dnn.cpp
+@@ -1143,6 +1143,18 @@ struct Net::Impl
+         return it->second;
+     }
+ 
++    void getOutputBlobs(int layerId, std::vector<Mat>& blobs)
++	{
++        MapIdToLayerData::iterator it = layers.find(layerId);
++
++        if (it == layers.end())
++            CV_Error(Error::StsObjectNotFound, format("Layer with requested id=%d not found", layerId));
++
++        for (int i = 0; i < it->second.outputBlobs.size(); i++) {
++        	blobs.push_back(it->second.outputBlobs[i]);
++        }
++	}
++
+     LayerData& getLayerData(const String &layerName)
+     {
+         int id = getLayerId(layerName);
+@@ -2740,6 +2752,11 @@ std::vector<Ptr<Layer> > Net::getLayerInputs(LayerId layerId)
+     return inputLayers;
+ }
+ 
++void Net::getOutputBlobs(int layerId, std::vector<Mat>& blobs)
++{
++	impl->getOutputBlobs(layerId, blobs);
++}
++
+ std::vector<String> Net::getLayerNames() const
+ {
+     std::vector<String> res;
+diff --git a/modules/dnn/src/tensorflow/tf_graph_simplifier.cpp b/modules/dnn/src/tensorflow/tf_graph_simplifier.cpp
+index a766d2a..351be57 100644
+--- a/modules/dnn/src/tensorflow/tf_graph_simplifier.cpp
++++ b/modules/dnn/src/tensorflow/tf_graph_simplifier.cpp
+@@ -677,7 +677,26 @@ void RemoveIdentityOps(tensorflow::GraphDef& net)
+         if (type == "Identity" || type == "Dropout") {
+             identity_ops_idx.push_back(li);
+             identity_ops[layer.name()] = layer.input(0);
+-        }
++        } else if (type == "StridedSlice") {
++             /* Temporary hack for stridedslice + expanddim that behaves like identity ops (In retinanet P4 and P5 upsample layer) */
++            int next_li = li + 1;
++            if (next_li < layersCount) {
++                printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
++                printf("!!!!!!!!!! HACK %s, %d!!!!!!!!!!!!!!!!!!!\n", __FILE__,__LINE__);
++                printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
++                const tensorflow::NodeDef &next_layer = net.node(next_li);
++                String type = next_layer.op();
++                if (type == "ExpandDims") {
++                    identity_ops_idx.push_back(li);
++                    identity_ops[layer.name()] = layer.input(0);
++                    identity_ops_idx.push_back(next_li);
++                    identity_ops[next_layer.name()] = layer.input(0);
++                    printf("identify_ops[%s] = %s\n", layer.name().c_str(), layer.input(0).c_str());
++                    printf("identify_ops[%s] = %s\n", next_layer.name().c_str(), layer.input(0).c_str());
++                }
++
++            }
++        } 
+     }
+ 
+     for (int li = 0; li < layersCount; li++)
